@@ -3,7 +3,8 @@
 import theano,numpy,math
 import theano.tensor as T
 #from theano.ifelse import ifelse
-from theano.tensor.shared_randomstreams import RandomStreams
+#from theano.tensor.shared_randomstreams import RandomStreams
+from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 X = T.fmatrix()
 y = T.fmatrix()
 beta = theano.shared(numpy.asarray(numpy.random.randn(784,1), dtype=theano.config.floatX))
@@ -21,6 +22,7 @@ def normal_en(pos,mom):
 beta_0 = T.fvector()
 p_0 = T.fvector()
 en = lambda beta_0,p_0 : T.dot(beta_0,beta_0)*0.5 + T.dot(p_0,p_0)*0.5
+
 #en_f = theano.function([],en)
 
 def simulate_dynamics(initial_pos, initial_mom, stepsize, n_steps, energy_fn):
@@ -64,19 +66,21 @@ def simulate_dynamics(initial_pos, initial_mom, stepsize, n_steps, energy_fn):
     # The last velocity returned by scan is vel(t +
     # (n_steps - 1 / 2) * stepsize) We therefore perform one more half-step
     # to return vel(t + n_steps * stepsize)
-    energy = energy_fn(final_pos,final_mom)
-    final_mom = final_mom - 0.5 * stepsize * T.grad(energy, final_pos)
+    final_energy = energy_fn(final_pos,final_mom)
+    output_mom = final_mom - 0.5 * stepsize * T.grad(final_energy, final_pos)
 
     # return new proposal state
-    return final_pos, final_mom
+    return final_pos, output_mom
+
+
 
 def metropolis_hastings_accept(energy_prev,energy_next,s_rng):
     ediff = energy_prev - energy_next
-    ran = s_rng.uniform([1])
-    t = T.exp(ediff) > ran
-    return t,ran
+    ran = s_rng.uniform((1,))
+    exp_diff = T.exp(ediff)
+    t = exp_diff > ran
+    return t,ran,exp_diff
 
-# start-snippet-1
 def hmc_move(s_rng, initial_pos, energy_fn, stepsize, n_steps):
     # end-snippet-1 start-snippet-2
     # sample random velocity
@@ -102,41 +106,44 @@ def hmc_move(s_rng, initial_pos, energy_fn, stepsize, n_steps):
     # end-snippet-4
     #print(ifelse(accept,1,2))
     #return accept,next_pos,final_pos,initial_pos
-    return accept[0],final_pos,initial_pos,final_mom,initial_mom,accept[1]
+    return [accept[0],final_pos,initial_pos,final_mom,initial_mom,accept[1],accept[2]]
 #out = en_f(beta_0,p_0)
 rng = RandomStreams()
-out = hmc_move(rng,beta_0,en,0.1,10)
+ep = 1.03
+L = 10
+initial_beta = 1.1
+out = hmc_move(rng,beta_0,en,ep,L)
 testf = theano.function([beta_0],out)
 
 # Try to sample from normal disribution
-initialvalue = 0.15
-samplesize = 10000
+samplesize = 15000
 storearray = numpy.asarray(numpy.zeros((samplesize,2)),dtype=theano.config.floatX)
-o = testf(numpy.asarray([initialvalue], dtype=theano.config.floatX))
+o = testf(numpy.asarray([initial_beta], dtype=theano.config.floatX))
 print(o)
-en_next = (o[1]**2 + o[3]**2)*0.5
-en_prev = (o[2]**2 + o[4]**2)*0.5
-
-exit()
+random_array = numpy.zeros(samplesize)
+exp_diffarray = numpy.zeros(samplesize)
+exp_energydiff_array = numpy.zeros(samplesize)
+#exit()
 storearray[0,0]=o[0]
 if o[0]:
     storearray[0,1]=o[1]
 else:
     storearray[0,1]=o[2]
 print(storearray[0,])
-
-for i in range(samplesize-1):
-    initial = storearray[i,1]
-    o = testf(numpy.asarray([initial],dtype=theano.config.floatX))
-    storearray[i,0]=o[0]
+for j in range(1,samplesize-1):
+    o = testf(numpy.asarray([storearray[j-1,1]],dtype=theano.config.floatX))
+    storearray[j,0]=o[0]
+    #print(o[0])
     if o[0]:
-        storearray[i,1]=o[1]
+        storearray[j,1]=o[1]
     else:
-        storearray[i,1]=o[2]
-print(numpy.mean(storearray[:,1]))
-print(numpy.var(storearray[:,1]))
-print(numpy.mean(storearray[:,0]))
+        storearray[j,1]=o[2]
+    random_array[j] = o[5]
 
+print(numpy.mean(storearray[-5000:,1]))
+print(numpy.var(storearray[-5000:,1]))
+print(numpy.mean(storearray[:,0]))
+print(random_array[:15])
 """""
 def leapfrog(pos, mom, step,energy_fn):
     # from pos(t) and vel(t-stepsize//2), compute vel(t+stepsize//2)
