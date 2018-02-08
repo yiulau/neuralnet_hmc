@@ -2,8 +2,8 @@ import numpy
 import torch
 from torch.autograd import Variable
 
-dim = 5
-chain_l = 100
+dim = 2
+chain_l = 4000
 q = torch.rand(dim)
 q = Variable(q,requires_grad=True)
 
@@ -58,10 +58,18 @@ def HMC(epsilon,L,current_q):
         return(current_q.data)
 
 
-for i in range(50):
+for i in range(chain_l):
     print("round {}".format(i))
     out = HMC(0.1,10,q)
     store[i,]=out
     q.data = out
 
-print(store[1:20,0])
+
+#o=numpy.cov(store)
+#print(o)
+store = store.numpy()
+empCov = numpy.cov(store,rowvar=False)
+print(empCov)
+emmean = numpy.mean(store,axis=0)
+print(emmean)
+#print(store[1:20,4])
